@@ -8,94 +8,95 @@ using System.Threading.Tasks;
 using RGB.NET.Groups;
 using System.Linq;
 using System.IO.Pipes;
+using System.IO;
+using System.Reflection;
+using Polly;
 
 namespace CorsairTemperatureAlert
 {
     class Program
     {
-        private const string PipeName = "CorsairNotificationUpdatePipe";
-
         static async Task Main(string[] args)
         {
-            if (args.Any() && args[0] == "-u")
+            double warnAt = 75;
+            double dangerAt = 80;
+            double temp = double.MinValue;
+            double interval = 1;
+            double seconds = 2;
+
+            for (int i = 0; i < args.Length; i++)
             {
-                var clientPipe = new NamedPipeClientStream(PipeName);
-                Console.WriteLine("Initiating pipe, connecting to server");
-
-                try
+                if (args[i] == "-w" || args[i] == "--warn")
                 {
-                    await clientPipe.ConnectAsync(2000);
-
-                    var ss = new StreamString(clientPipe);
-                    ss.WriteString(args[1]);
+                    double.TryParse(args[i + 1], out warnAt);
                 }
-                catch (TimeoutException)
+
+                if (args[i] == "-d" || args[i] == "--danger")
                 {
-                    Console.Error.WriteLine("Failed to connect to server. It might not be listening or is busy.");
-                    return;
+                    double.TryParse(args[i + 1], out dangerAt);
+                }
+
+                if (args[i] == "-i" || args[i] == "--inteval")
+                {
+                    double.TryParse(args[i + 1], out interval);
+                }
+
+                if (args[i] == "-s" || args[i] == "--seconds")
+                {
+                    double.TryParse(args[i + 1], out seconds);
+                }
+
+                if (args[i] == "-t" || args[i] == "--temperature")
+                {
+                    double.TryParse(args[i + 1], out temp);
                 }
             }
-            else
+
+            FileStream fileHandler = null;
+
+            Policy.Handle<IOException>()
+                .WaitAndRetry(10, _ => TimeSpan.FromSeconds(1))
+                .Execute(
+                () =>
+                {
+                    fileHandler = File.Open(
+                        Path.GetFileName(Assembly.GetExecutingAssembly().Location) + "lock",
+                        FileMode.OpenOrCreate,
+                        FileAccess.ReadWrite,
+                        FileShare.None);
+                });
+
+            var surface = RGBSurface.Instance;
+            surface.Exception += args => Console.WriteLine(args.Exception.Message);
+            surface.LoadDevices(CorsairDeviceProvider.Instance);
+            surface.LoadDevices(LogitechDeviceProvider.Instance);
+            surface.AlignDevices();
+
+            foreach (var led in surface.Leds)
+                Console.WriteLine($"{led.Device.DeviceInfo.DeviceName}: {led.Id}");
+
+            var group = new ListLedGroup(surface.Leds)
             {
-                double currentTemperature = 0;
-                var surface = RGBSurface.Instance;
-                surface.Exception += args => Console.WriteLine(args.Exception.Message);
-                surface.LoadDevices(CorsairDeviceProvider.Instance);
-                surface.LoadDevices(LogitechDeviceProvider.Instance);
-                surface.AlignDevices();
+                Brush = new SolidColorBrush(Color.Transparent)
+            };
 
-                foreach (var led in surface.Leds)
-                    Console.WriteLine($"{led.Device.DeviceInfo.DeviceName}: {led.Id}");
+            var decorator = new HeatWarningFlashDecorator(
+                temp,
+                warnAt,
+                dangerAt,
+                new Color(255, 255, 0),
+                new Color(255, 0, 0),
+                interval);
 
-                var group = new ListLedGroup(surface.Leds)
-                {
-                    Brush = new SolidColorBrush(Color.Transparent)
-                };
+            group.Brush.AddDecorator(decorator);
 
-                var decorator = new HeatWarningFlashDecorator(
-                    () => (int)Math.Floor(currentTemperature),
-                    75,
-                    80,
-                    new Color(255, 255, 0),
-                    new Color(255, 0, 0));
+            var updateTrigger = new TimerUpdateTrigger();
 
-                group.Brush.AddDecorator(decorator);
+            surface.RegisterUpdateTrigger(updateTrigger);
 
-                var updateTrigger = new TimerUpdateTrigger();
+            await Task.Delay((int)Math.Floor(seconds * 1000));
 
-                surface.RegisterUpdateTrigger(updateTrigger);
-
-                bool hasReset = false;
-
-                while (true)
-                {
-                    using var serverPipe = new NamedPipeServerStream(PipeName, PipeDirection.InOut);
-
-                    Console.WriteLine("Initiating pipe, waiting for connection");
-                    await serverPipe.WaitForConnectionAsync();
-                    Console.WriteLine("Connected!");
-
-                    var ss = new StreamString(serverPipe);
-                    double.TryParse(ss.ReadString(), out currentTemperature);
-
-                    Console.WriteLine("Read value: " + currentTemperature);
-
-                    if (currentTemperature < 60)
-                    {
-                        updateTrigger.Stop();
-                        CorsairDeviceProvider.Instance.ResetDevices();
-                        LogitechDeviceProvider.Instance.ResetDevices();
-                        hasReset = true;
-                    }
-                    else if (hasReset)
-                    {
-                        CorsairDeviceProvider.Instance.Initialize();
-                        LogitechDeviceProvider.Instance.Initialize();
-                        updateTrigger.Start();
-                        hasReset = false;
-                    }
-                }
-            }
+            await fileHandler.DisposeAsync();
         }
     }
 }
