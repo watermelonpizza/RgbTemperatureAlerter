@@ -21,7 +21,7 @@ namespace CorsairTemperatureAlert
             double warnAt = 75;
             double dangerAt = 80;
             double temp = double.MinValue;
-            double interval = 1;
+            double interval = .5;
             double seconds = 2;
 
             for (int i = 0; i < args.Length; i++)
@@ -50,6 +50,12 @@ namespace CorsairTemperatureAlert
                 {
                     double.TryParse(args[i + 1], out temp);
                 }
+            }
+
+            if (temp == double.MinValue)
+            {
+                Console.Error.WriteLine("Temperature (`-t` or `--temperature`) is required");
+                return;
             }
 
             FileStream fileHandler = null;
