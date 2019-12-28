@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RGB.NET.Brushes" Version="0.1.31" />
+    <PackageReference Include="RGB.NET.Core" Version="0.1.31" />
+    <PackageReference Include="RGB.NET.Devices.Corsair" Version="0.1.31" />
+    <PackageReference Include="RGB.NET.Devices.Logitech" Version="0.1.31" />
+    <PackageReference Include="RGB.NET.Groups" Version="0.1.31" />
+    <PackageReference Include="RGB.NET.Resources.Corsair" Version="0.3.0.234" />
+    <PackageReference Include="RGB.NET.Resources.Logitech" Version="0.3.0" />
+  </ItemGroup>
+
+</Project>
